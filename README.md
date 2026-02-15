@@ -1,6 +1,7 @@
 # Window Controls Plugin
 
 macOS Stream Deck plugin to move app windows between displays.
+Disclaimer: fully vibecoded in half a day, likely has some jank.
 
 ## Use
 - Open `Window Controls` folder on Stream Deck.
