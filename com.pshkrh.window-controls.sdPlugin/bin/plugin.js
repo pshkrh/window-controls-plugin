@@ -28,7 +28,6 @@ const ROLE_PAGE_NEXT = "page_next";
 const ROLE_MOVE_LEFT = "move_left";
 const ROLE_MOVE_RIGHT = "move_right";
 const ROLE_MODE_BACK = "mode_back";
-const ROLE_SELECTED_PREVIEW = "selected_preview";
 const ICON_CACHE_DIR = path.join(__dirname, "..", "imgs", "runtime-cache");
 
 const DEFAULT_ROLE_BY_COORDINATE = new Map([
@@ -95,7 +94,6 @@ let displayMap = mapDisplays([]);
 let permissionBlocked = false;
 let prewarmScheduled = false;
 let refreshInProgress = false;
-let resetListOnNextAppear = true;
 let lastAppearAt = 0;
 
 function coordinateKey(coordinates) {
@@ -374,34 +372,51 @@ function clearVisual(context) {
   setVisual(context, IDLE_IMAGE, "");
 }
 
+function setControlVisual(context, role, label = "") {
+  setVisual(context, iconRenderer.getControlIconDataUrl(role, label), "");
+}
+
+function setPagedControlVisual(context, role, hasMultiplePages) {
+  if (hasMultiplePages) {
+    setControlVisual(context, role);
+  } else {
+    clearVisual(context);
+  }
+}
+
+function refreshVisibleState() {
+  ensureVisibleIconsReadySync();
+  renderAllContexts();
+  scheduleIconPrewarm();
+}
+
 function renderPermissionState(contextState) {
   const { context, settings, coordinates } = contextState;
   const mode = store.getState().mode;
   const effectiveRole = getEffectiveRole(mode, coordinates);
 
   if (effectiveRole === ROLE_MODE_BACK) {
-    const image = iconRenderer.getControlIconDataUrl("permission", "LOCK");
-    setVisual(context, image, "Grant\nAccess");
+    setVisual(context, iconRenderer.getControlIconDataUrl("permission", "LOCK"), "Grant\nAccess");
     return;
   }
 
   if (effectiveRole === ROLE_PAGE_PREV) {
-    setVisual(context, iconRenderer.getControlIconDataUrl(ROLE_PAGE_PREV, "<"), "");
+    setControlVisual(context, ROLE_PAGE_PREV, "<");
     return;
   }
 
   if (effectiveRole === ROLE_PAGE_NEXT) {
-    setVisual(context, iconRenderer.getControlIconDataUrl(ROLE_PAGE_NEXT, ">"), "");
+    setControlVisual(context, ROLE_PAGE_NEXT, ">");
     return;
   }
 
   if (effectiveRole === ROLE_MOVE_LEFT) {
-    setVisual(context, iconRenderer.getControlIconDataUrl(ROLE_MOVE_LEFT, "<"), "");
+    setControlVisual(context, ROLE_MOVE_LEFT, "<");
     return;
   }
 
   if (effectiveRole === ROLE_MOVE_RIGHT) {
-    setVisual(context, iconRenderer.getControlIconDataUrl(ROLE_MOVE_RIGHT, ">"), "");
+    setControlVisual(context, ROLE_MOVE_RIGHT, ">");
     return;
   }
 
@@ -416,30 +431,16 @@ function renderPermissionState(contextState) {
 function renderListMode(contextState) {
   const { context, coordinates } = contextState;
   const state = store.getState();
-  const listPageSize = getListPageSize();
-  const listTotalPages = getListTotalPages(state, listPageSize);
+  const listTotalPages = getListTotalPages(state, getListPageSize());
   const effectiveRole = getEffectiveRole(MODE_LIST, coordinates);
 
   if (effectiveRole === ROLE_PAGE_PREV) {
-    if (listTotalPages > 1) {
-      setVisual(context, iconRenderer.getControlIconDataUrl(ROLE_PAGE_PREV, ""), "");
-    } else {
-      clearVisual(context);
-    }
+    setPagedControlVisual(context, ROLE_PAGE_PREV, listTotalPages > 1);
     return;
   }
 
   if (effectiveRole === ROLE_PAGE_NEXT) {
-    if (listTotalPages > 1) {
-      setVisual(context, iconRenderer.getControlIconDataUrl(ROLE_PAGE_NEXT, ""), "");
-    } else {
-      clearVisual(context);
-    }
-    return;
-  }
-
-  if (effectiveRole === ROLE_MODE_BACK) {
-    setVisual(context, iconRenderer.getControlIconDataUrl("home", ""), "");
+    setPagedControlVisual(context, ROLE_PAGE_NEXT, listTotalPages > 1);
     return;
   }
 
@@ -465,56 +466,33 @@ function renderListMode(contextState) {
 
 function renderDirectionMode(contextState) {
   const { context, coordinates } = contextState;
+  const state = store.getState();
   const effectiveRole = getEffectiveRole(MODE_DIRECTION, coordinates);
   const selectedApp = getSelectedApp();
   const windows = selectedApp ? describeSelectedAppWindows() : [];
   const totalPages = getDirectionTotalPages(windows.length);
-  const selectedWindow = selectedApp ? getSelectedWindowEntry() : null;
+  const selectedWindow =
+    selectedApp && windows.length
+      ? windows.find((entry) => entry.key === state.selectedWindowKey) || windows[0]
+      : null;
 
   if (effectiveRole === ROLE_MODE_BACK) {
-    setVisual(context, iconRenderer.getControlIconDataUrl(ROLE_MODE_BACK, ""), "");
+    setControlVisual(context, ROLE_MODE_BACK);
     return;
   }
 
   if (effectiveRole === ROLE_MOVE_LEFT) {
-    setVisual(context, iconRenderer.getControlIconDataUrl(ROLE_MOVE_LEFT, ""), "");
+    setControlVisual(context, ROLE_MOVE_LEFT);
     return;
   }
 
   if (effectiveRole === ROLE_MOVE_RIGHT) {
-    setVisual(context, iconRenderer.getControlIconDataUrl(ROLE_MOVE_RIGHT, ""), "");
+    setControlVisual(context, ROLE_MOVE_RIGHT);
     return;
   }
 
   if (effectiveRole === ROLE_REFRESH) {
-    if (totalPages > 1) {
-      setVisual(context, iconRenderer.getControlIconDataUrl(ROLE_REFRESH, ""), "");
-    } else {
-      clearVisual(context);
-    }
-    return;
-  }
-
-  if (effectiveRole === ROLE_PAGE_PREV) {
-    if (totalPages > 1) {
-      setVisual(context, iconRenderer.getControlIconDataUrl(ROLE_PAGE_PREV, ""), "");
-    } else {
-      clearVisual(context);
-    }
-    return;
-  }
-
-  if (effectiveRole === ROLE_PAGE_NEXT) {
-    if (totalPages > 1) {
-      setVisual(context, iconRenderer.getControlIconDataUrl(ROLE_PAGE_NEXT, ""), "");
-    } else {
-      clearVisual(context);
-    }
-    return;
-  }
-
-  if (effectiveRole === ROLE_SELECTED_PREVIEW) {
-    clearVisual(context);
+    setPagedControlVisual(context, ROLE_REFRESH, totalPages > 1);
     return;
   }
 
@@ -524,7 +502,14 @@ function renderDirectionMode(contextState) {
       return;
     }
 
-    const windowEntry = windowForDirectionSlot(coordinates);
+    const slotPosition = getDirectionSlotPosition(coordinates);
+    if (!Number.isInteger(slotPosition)) {
+      clearVisual(context);
+      return;
+    }
+
+    const index = state.directionPage * DIRECTION_PAGE_SIZE + slotPosition;
+    const windowEntry = windows[index] || null;
     if (!windowEntry) {
       clearVisual(context);
       return;
@@ -566,7 +551,11 @@ function renderAllContexts() {
 function collectVisibleAppVariants() {
   const state = store.getState();
   const appVariants = new Map();
-  const selectedWindow = state.mode === MODE_DIRECTION ? getSelectedWindowEntry() : null;
+  const directionWindows = state.mode === MODE_DIRECTION ? describeSelectedAppWindows() : [];
+  const selectedWindow =
+    state.mode === MODE_DIRECTION
+      ? directionWindows.find((entry) => entry.key === state.selectedWindowKey) || directionWindows[0] || null
+      : null;
 
   for (const contextState of contexts.values()) {
     if (permissionBlocked) {
@@ -600,7 +589,13 @@ function collectVisibleAppVariants() {
         continue;
       }
 
-      const windowEntry = windowForDirectionSlot(contextState.coordinates);
+      const slotPosition = getDirectionSlotPosition(contextState.coordinates);
+      if (!Number.isInteger(slotPosition)) {
+        continue;
+      }
+
+      const windowIndex = state.directionPage * DIRECTION_PAGE_SIZE + slotPosition;
+      const windowEntry = directionWindows[windowIndex] || null;
       if (!windowEntry) {
         continue;
       }
@@ -695,9 +690,7 @@ async function refreshInventory(reason) {
     }
 
     permissionBlocked = false;
-    ensureVisibleIconsReadySync();
-    renderAllContexts();
-    scheduleIconPrewarm();
+    refreshVisibleState();
   } catch (error) {
     client.logMessage(`Refresh failed (${reason}): ${String(error && error.message ? error.message : error)}`);
 
@@ -721,9 +714,7 @@ function listPageOffset(delta) {
   if (nextPage !== state.currentPage) {
     store.setPage(nextPage);
   }
-  ensureVisibleIconsReadySync();
-  renderAllContexts();
-  scheduleIconPrewarm();
+  refreshVisibleState();
 }
 
 function directionPageOffset(delta, options = {}) {
@@ -743,9 +734,7 @@ function directionPageOffset(delta, options = {}) {
   if (nextPage !== state.directionPage) {
     store.setDirectionPage(nextPage);
   }
-  ensureVisibleIconsReadySync();
-  renderAllContexts();
-  scheduleIconPrewarm();
+  refreshVisibleState();
 }
 
 function selectAppFromSlot(coordinates) {
@@ -763,9 +752,7 @@ function selectAppFromSlot(coordinates) {
   } else {
     store.selectWindow("");
   }
-  ensureVisibleIconsReadySync();
-  renderAllContexts();
-  scheduleIconPrewarm();
+  refreshVisibleState();
 }
 
 function selectDirectionWindowFromSlot(coordinates) {
@@ -775,9 +762,7 @@ function selectDirectionWindowFromSlot(coordinates) {
   }
 
   store.selectWindow(windowEntry.key);
-  ensureVisibleIconsReadySync();
-  renderAllContexts();
-  scheduleIconPrewarm();
+  refreshVisibleState();
 }
 
 async function handleMove(direction, context) {
@@ -860,8 +845,7 @@ async function handleKeyDown(event) {
         navigateHomeFromList();
       } else {
         store.clearSelection();
-        renderAllContexts();
-        scheduleIconPrewarm();
+        refreshVisibleState();
       }
       return;
     }
@@ -873,11 +857,6 @@ async function handleKeyDown(event) {
   if (state.mode === MODE_LIST) {
     if (effectiveRole === ROLE_MODE_BACK) {
       navigateHomeFromList();
-      return;
-    }
-
-    if (effectiveRole === ROLE_REFRESH) {
-      await refreshInventory("manual-refresh");
       return;
     }
 
@@ -902,8 +881,7 @@ async function handleKeyDown(event) {
   if (state.mode === MODE_DIRECTION) {
     if (effectiveRole === ROLE_MODE_BACK) {
       store.clearSelection();
-      renderAllContexts();
-      scheduleIconPrewarm();
+      refreshVisibleState();
       return;
     }
 
@@ -914,16 +892,6 @@ async function handleKeyDown(event) {
 
     if (effectiveRole === ROLE_MOVE_RIGHT) {
       await handleMove("right", event.context);
-      return;
-    }
-
-    if (effectiveRole === ROLE_PAGE_PREV) {
-      directionPageOffset(-1);
-      return;
-    }
-
-    if (effectiveRole === ROLE_PAGE_NEXT) {
-      directionPageOffset(1, { wrap: true });
       return;
     }
 
@@ -968,10 +936,6 @@ function removeContext(context) {
   if (wasDirectionMode) {
     store.clearSelection();
   }
-
-  if (contexts.size === 0) {
-    resetListOnNextAppear = true;
-  }
 }
 
 function handleDidReceiveSettings(event) {
@@ -990,9 +954,7 @@ function handleDidReceiveSettings(event) {
   });
 
   client.setSettings(event.context, settings);
-  ensureVisibleIconsReadySync();
-  renderAllContexts();
-  scheduleIconPrewarm();
+  refreshVisibleState();
 }
 
 function handleIncomingEvent(event) {
@@ -1012,26 +974,21 @@ function handleIncomingEvent(event) {
       contexts.clear();
       renderCache.clear();
       store.clearSelection();
-      resetListOnNextAppear = true;
     }
 
     if (now - lastAppearAt > APPEAR_CYCLE_GAP_MS) {
       contexts.clear();
       renderCache.clear();
       store.clearSelection();
-      resetListOnNextAppear = true;
     }
     lastAppearAt = now;
 
     if (contexts.size === 0) {
       store.clearSelection();
-      resetListOnNextAppear = false;
     }
     upsertContext(event);
     clearVisual(event.context);
-    ensureVisibleIconsReadySync();
-    renderAllContexts();
-    scheduleIconPrewarm();
+    refreshVisibleState();
     return;
   }
 

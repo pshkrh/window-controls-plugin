@@ -1,70 +1,5 @@
 import { getWorkArea, mapDisplays } from "./displays";
-
-const APP_PATH_FIELDS = [
-  "path",
-  "bundlePath",
-  "bundleURL",
-  "bundleUrl",
-  "executablePath",
-  "executableURL",
-  "executableUrl",
-  "filePath",
-  "fileURL",
-  "fileUrl",
-  "url",
-];
-
-function normalizePathString(value: any): string {
-  if (typeof value !== "string") return "";
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-
-  if (trimmed.startsWith("file://")) {
-    try {
-      const url = new URL(trimmed);
-      if (url.protocol === "file:") {
-        return decodeURIComponent(url.pathname || "");
-      }
-    } catch {
-      // Fall through to the raw string.
-    }
-  }
-
-  return trimmed;
-}
-
-function normalizeAppBundlePath(pathLike: any): string {
-  const normalized = normalizePathString(pathLike);
-  if (!normalized) return "";
-
-  const lower = normalized.toLowerCase();
-  if (lower.endsWith(".app")) return normalized;
-
-  const marker = lower.indexOf(".app/");
-  if (marker >= 0) {
-    return normalized.slice(0, marker + 4);
-  }
-
-  return "";
-}
-
-function extractAppPath(app: any): string {
-  for (const field of APP_PATH_FIELDS) {
-    const resolved = normalizeAppBundlePath(app?.[field]);
-    if (resolved) return resolved;
-  }
-  return "";
-}
-
-function extractAppName(app: any): string {
-  const directNames = [app?.name, app?.localizedName, app?.displayName];
-  for (const value of directNames) {
-    if (typeof value === "string" && value.trim()) {
-      return value.trim();
-    }
-  }
-  return "";
-}
+import { extractAppName, extractDirectAppPath } from "./app-utils";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -77,13 +12,21 @@ function safeNumber(value: number, fallback: number): number {
 function normalizedRelativePosition(bounds: any, sourceArea: any) {
   const relativeX = sourceArea.width > 0 ? (bounds.x - sourceArea.x) / sourceArea.width : 0;
   const relativeY = sourceArea.height > 0 ? (bounds.y - sourceArea.y) / sourceArea.height : 0;
-  return { x: clamp(relativeX, 0, 1), y: clamp(relativeY, 0, 1) };
+
+  return {
+    x: clamp(relativeX, 0, 1),
+    y: clamp(relativeY, 0, 1),
+  };
 }
 
 function normalizedRelativeSize(bounds: any, sourceArea: any) {
   const relativeWidth = sourceArea.width > 0 ? bounds.width / sourceArea.width : 0;
   const relativeHeight = sourceArea.height > 0 ? bounds.height / sourceArea.height : 0;
-  return { width: clamp(relativeWidth, 0.05, 1), height: clamp(relativeHeight, 0.05, 1) };
+
+  return {
+    width: clamp(relativeWidth, 0.05, 1),
+    height: clamp(relativeHeight, 0.05, 1),
+  };
 }
 
 function toRelativeBounds(bounds: any, area: any) {
@@ -136,11 +79,17 @@ function createTargetBounds(bounds: any, sourceArea: any, targetArea: any) {
 
 function matchesApp(windowRef: any, selectedAppPath: string, selectedAppName: string) {
   const app = windowRef?.application || {};
-  const appPath = extractAppPath(app);
-  const appName = extractAppName(app);
+  const appPath = extractDirectAppPath(app);
+  const appName = extractAppName(app, "", "");
 
-  if (selectedAppPath && appPath === selectedAppPath) return true;
-  if (selectedAppName && appName === selectedAppName) return true;
+  if (selectedAppPath && appPath === selectedAppPath) {
+    return true;
+  }
+
+  if (selectedAppName && appName === selectedAppName) {
+    return true;
+  }
+
   return false;
 }
 
@@ -158,7 +107,7 @@ export function createMoveEngine(backend: any) {
       return `id:${String(explicitId)}`;
     }
 
-    const appPath = extractAppPath(windowRef?.application || {});
+    const appPath = extractDirectAppPath(windowRef?.application || {});
     const title = windowRef?.title || "";
     return `fallback:${appPath}|${title}|${index}`;
   }
@@ -167,9 +116,11 @@ export function createMoveEngine(backend: any) {
     if (!windowKey || !screenId || !bounds) {
       return;
     }
+
     if (!rememberedBoundsByWindow.has(windowKey)) {
       rememberedBoundsByWindow.set(windowKey, new Map());
     }
+
     rememberedBoundsByWindow.get(windowKey)!.set(String(screenId), { ...bounds });
   }
 
@@ -236,8 +187,7 @@ export function createMoveEngine(backend: any) {
 
   return {
     async moveSingleWindowToDirection(windowRef: any, direction: "left" | "right") {
-      const result = await moveWindowsToDirection(windowRef ? [windowRef] : [], direction);
-      return result;
+      return moveWindowsToDirection(windowRef ? [windowRef] : [], direction);
     },
     async moveAppWindowsToDirection(selectedAppPath: string, selectedAppName: string, direction: "left" | "right") {
       const allWindows = await backend.getWindows();

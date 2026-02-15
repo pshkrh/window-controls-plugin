@@ -5,16 +5,11 @@ const fs = require("node:fs");
 const path = require("node:path");
 const childProcess = require("node:child_process");
 
+const { resolveInstalledAppPathByName } = require("../domain/app-utils");
+
 const TRANSPARENT_PNG_DATA_URL =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9sJd7s8AAAAASUVORK5CYII=";
 const ICON_THEME_VERSION = "v5";
-const APP_PATH_BY_NAME_CACHE = new Map();
-const COMMON_APP_DIRECTORIES = [
-  "/Applications",
-  "/System/Applications",
-  "/System/Applications/Utilities",
-  `${process.env.HOME || ""}/Applications`,
-].filter(Boolean);
 
 function toDataUrl(pngPath) {
   const buffer = fs.readFileSync(pngPath);
@@ -39,83 +34,6 @@ function runRendererScript(rendererScriptPath, args) {
   });
 }
 
-function escapeMdfindValue(value) {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
-
-function normalizeAppPath(pathLike) {
-  if (typeof pathLike !== "string") {
-    return "";
-  }
-
-  const trimmed = pathLike.trim();
-  if (!trimmed) {
-    return "";
-  }
-
-  const lower = trimmed.toLowerCase();
-  if (lower.endsWith(".app")) {
-    return fs.existsSync(trimmed) ? trimmed : "";
-  }
-
-  const marker = lower.indexOf(".app/");
-  if (marker >= 0) {
-    const bundlePath = trimmed.slice(0, marker + 4);
-    return fs.existsSync(bundlePath) ? bundlePath : "";
-  }
-
-  return "";
-}
-
-function resolveAppPathByName(appName) {
-  const normalizedName = typeof appName === "string" ? appName.trim() : "";
-  if (!normalizedName) {
-    return "";
-  }
-
-  if (APP_PATH_BY_NAME_CACHE.has(normalizedName)) {
-    return APP_PATH_BY_NAME_CACHE.get(normalizedName);
-  }
-
-  let resolved = "";
-
-  for (const directory of COMMON_APP_DIRECTORIES) {
-    const candidate = path.join(directory, `${normalizedName}.app`);
-    if (fs.existsSync(candidate)) {
-      resolved = candidate;
-      break;
-    }
-  }
-
-  if (!resolved) {
-    try {
-      const escapedName = escapeMdfindValue(normalizedName);
-      const output = childProcess.execFileSync(
-        "mdfind",
-        [`kMDItemKind == "Application" && (kMDItemDisplayName == "${escapedName}" || kMDItemFSName == "${escapedName}.app")`],
-        { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }
-      );
-      const matches = String(output)
-        .split(/\r?\n/g)
-        .map((line) => line.trim())
-        .filter(Boolean);
-
-      for (const candidate of matches) {
-        const normalized = normalizeAppPath(candidate);
-        if (normalized) {
-          resolved = normalized;
-          break;
-        }
-      }
-    } catch {
-      // no-op
-    }
-  }
-
-  APP_PATH_BY_NAME_CACHE.set(normalizedName, resolved);
-  return resolved;
-}
-
 function createIconRenderer(options) {
   const cacheDirectory = options.cacheDirectory;
   const rendererScriptPath = options.rendererScriptPath;
@@ -131,7 +49,7 @@ function createIconRenderer(options) {
     getAppIconDataUrl(appPath, badgeText, selected = false, allowGenerate = true, appName = "") {
       const safePath = appPath || "";
       const safeAppName = appName || "";
-      const resolvedPath = safePath || resolveAppPathByName(safeAppName);
+      const resolvedPath = safePath || resolveInstalledAppPathByName(safeAppName);
       const safeBadge = badgeText || "";
       const safeSelected = selected ? "1" : "0";
       const cacheKey = `${resolvedPath}|${safeAppName}|${safeBadge}|${safeSelected}`;
@@ -172,7 +90,7 @@ function createIconRenderer(options) {
     prewarmAppIcon(appPath, badgeText, selected = false, appName = "") {
       const safePath = appPath || "";
       const safeAppName = appName || "";
-      const resolvedPath = safePath || resolveAppPathByName(safeAppName);
+      const resolvedPath = safePath || resolveInstalledAppPathByName(safeAppName);
       const safeBadge = badgeText || "";
       const safeSelected = selected ? "1" : "0";
       const cacheKey = `${resolvedPath}|${safeAppName}|${safeBadge}|${safeSelected}`;
@@ -197,19 +115,24 @@ function createIconRenderer(options) {
       }
 
       appImagePending.add(cacheKey);
-      childProcess.execFile("python3", [rendererScriptPath, "app", resolvedPath, safeBadge, safeSelected, cacheFile], {
-        stdio: "ignore",
-      }, () => {
-        appImagePending.delete(cacheKey);
-        if (fs.existsSync(cacheFile)) {
-          try {
-            const dataUrl = toPluginImageReference(cacheFile, pluginRootDirectory);
-            appImageCache.set(cacheKey, dataUrl);
-          } catch {
-            // no-op
+      childProcess.execFile(
+        "python3",
+        [rendererScriptPath, "app", resolvedPath, safeBadge, safeSelected, cacheFile],
+        {
+          stdio: "ignore",
+        },
+        () => {
+          appImagePending.delete(cacheKey);
+          if (fs.existsSync(cacheFile)) {
+            try {
+              const dataUrl = toPluginImageReference(cacheFile, pluginRootDirectory);
+              appImageCache.set(cacheKey, dataUrl);
+            } catch {
+              // no-op
+            }
           }
         }
-      });
+      );
     },
     hasPendingAppIcons() {
       return appImagePending.size > 0;
