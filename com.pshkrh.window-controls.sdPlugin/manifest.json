@@ -1,0 +1,38 @@
+{
+  "Name": "Window Controls",
+  "Version": "1.0.0",
+  "Author": "pshkrh",
+  "Description": "Move app windows between displays with dynamic app icons and display badges.",
+  "UUID": "com.pshkrh.window-controls",
+  "Icon": "imgs/pluginIcon",
+  "Category": "Window Controls",
+  "CategoryIcon": "imgs/pluginIcon",
+  "CodePath": "bin/plugin.js",
+  "SDKVersion": 2,
+  "Software": {
+    "MinimumVersion": "6.5"
+  },
+  "OS": [
+    {
+      "Platform": "mac",
+      "MinimumVersion": "10.15"
+    }
+  ],
+  "Nodejs": {
+    "Version": "20"
+  },
+  "Actions": [
+    {
+      "Name": "Window Controls Key",
+      "UUID": "com.pshkrh.window-controls.key",
+      "Icon": "imgs/actionIcon",
+      "Tooltip": "Dynamic window control key",
+      "States": [
+        {
+          "Image": "imgs/actionIcon"
+        }
+      ],
+      "SupportedInMultiActions": false
+    }
+  ]
+}

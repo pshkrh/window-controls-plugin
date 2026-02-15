@@ -1,0 +1,9 @@
+{
+  "name": "window-controls-plugin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Custom Stream Deck window controls plugin",
+  "scripts": {
+    "test": "node tests/manifest.test.js && node tests/domain.test.js"
+  }
+}
